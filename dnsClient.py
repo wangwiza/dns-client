@@ -3,6 +3,7 @@ Authors: William Wang 261113954
          Kevin-Ruikai Li 261120382 
 '''
 import argparse
+from io import BytesIO
 import random
 import sys
 import socket
@@ -10,7 +11,7 @@ import struct
 import dataclasses
 from dataclasses import dataclass
 
-RECURSIVE_FLAG = 256
+RECURSIVE_FLAG = 0x0100
 
 @dataclass
 class DNSHeader:
@@ -34,6 +35,14 @@ class DNSRecord:
     class_: int
     ttl: int
     data: bytes
+
+@dataclass
+class DNSPacket:
+    header: DNSHeader
+    questions: list[DNSQuestion]
+    answers: list[DNSRecord]
+    authorities: list[DNSRecord]
+    additionals: list[DNSRecord]
 
 def header_to_bytes(header: DNSHeader) -> bytes:
     fields = dataclasses.astuple(header)
@@ -101,13 +110,64 @@ def build_dns_query(name: str, qtype: int) -> bytes:
     query_bytes = header_to_bytes(header) + question_to_bytes(question)
     return query_bytes
 
-def parse_dns_header() -> DNSHeader:
-    pass
+def parse_dns_header(reader) -> DNSHeader:
+    items = struct.unpack('!HHHHHH', reader.read(12))
+    return DNSHeader(*items)
 
-def parse_dns_answer():
-    pass
+def decode_dns_name(reader):
+    parts = []
+    while (length := reader.read(1)[0]) != 0:
+        if length & 0b1100_0000:
+            parts.append(decode_compressed_dns_name(length, reader))
+            break
+        else:
+            parts.append(reader.read(length))
+    return b".".join(parts)
 
 
+def decode_compressed_dns_name(length, reader):
+    pointer_halfword = bytes([length & 0b0011_1111]) + reader.read(1)
+    pointer = struct.unpack("!H", pointer_halfword)[0]
+    current_pos = reader.tell()
+    reader.seek(pointer)
+    result = decode_dns_name(reader)
+    reader.seek(current_pos)
+    return result
+
+def parse_dns_question(reader):
+    name = decode_dns_name(reader)
+    qtype, qclass = struct.unpack('!HH', reader.read(4))
+    return DNSQuestion(name, qtype, qclass)
+
+def parse_dns_record(reader):
+    name = decode_dns_name(reader)
+    type_, class_, ttl, rdlength = struct.unpack('!HHIH', reader.read(10))
+    data = reader.read(rdlength)
+    return DNSRecord(name, type_, class_, ttl, data)
+
+def parse_dns_packet(data):
+    reader = BytesIO(data)
+    header = parse_dns_header(reader)
+    questions = [parse_dns_question(reader) for _ in range(header.qdcount)]
+    answers = [parse_dns_record(reader) for _ in range(header.ancount)]
+    authorities = [parse_dns_record(reader) for _ in range(header.nscount)]
+    additionals = [parse_dns_record(reader) for _ in range(header.arcount)]
+
+    return DNSPacket(header, questions, answers, authorities, additionals)
+
+def ip_to_string(ip):
+    return ".".join([str(x) for x in ip])
+
+def lookup_domain_name(name: str, server: str, port: int, mx: bool, ns: bool):
+    # Sends a query to the server for the given domain name using a UDP socket;
+    query = build_dns_query(name, 15 if mx else 2 if ns else 1)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.sendto(query, (server, port))
+
+    # Waits for the response to be returned from the server;
+    response, _ = sock.recvfrom(1024)
+    packet = parse_dns_packet(response)
+    return ip_to_string(packet.answers[0].data)
 
 if __name__ == "__main__":
     # Is invoked from the command line (STDIN);
@@ -128,4 +188,7 @@ if __name__ == "__main__":
     # Waits for the response to be returned from the server;
 
     response, _ = sock.recvfrom(1024)
-    print(response)
+    packet = parse_dns_packet(response)
+    for answer in packet.answers:
+        print(answer)
+    sock.close()
