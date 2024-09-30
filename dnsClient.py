@@ -12,6 +12,10 @@ import dataclasses
 from dataclasses import dataclass
 
 RECURSIVE_FLAG = 0x0100
+TYPE_A = 1
+TYPE_NS = 2
+TYPE_CNAME = 5
+TYPE_MX = 15
 
 @dataclass
 class DNSHeader:
@@ -142,7 +146,18 @@ def parse_dns_question(reader):
 def parse_dns_record(reader):
     name = decode_dns_name(reader)
     type_, class_, ttl, rdlength = struct.unpack('!HHIH', reader.read(10))
-    data = reader.read(rdlength)
+    if type_ == TYPE_A:
+        data = ip_to_string(reader.read(rdlength))
+    elif type_ == TYPE_NS:
+        data = decode_dns_name(reader)
+    elif type_ == TYPE_CNAME:
+        data = decode_dns_name(reader)
+    elif type_ == TYPE_MX:
+        preference = struct.unpack('!H', reader.read(2))[0]
+        exchange = decode_dns_name(reader)
+        data = (preference, exchange)
+    else:
+        data = reader.read(rdlength)
     return DNSRecord(name, type_, class_, ttl, data)
 
 def parse_dns_packet(data):
@@ -189,6 +204,33 @@ if __name__ == "__main__":
 
     response, _ = sock.recvfrom(1024)
     packet = parse_dns_packet(response)
-    for answer in packet.answers:
-        print(answer)
+    authoritive = packet.header.flags & 0x0400
+    if packet.answers:
+        print(f"***Answer Section ({packet.header.ancount} records)***")
+        for record in packet.answers:
+            if record.type_ == TYPE_A:
+                print(f"IP\t{record.data}\t{record.ttl}\t{'auth' if authoritive else 'nonauth'}")
+            elif record.type_ == TYPE_NS:
+                print(f"NS\t{record.data.decode()}\t{record.ttl}\t{'auth' if authoritive else 'nonauth'}")
+            elif record.type_ == TYPE_CNAME:
+                print(f"CNAME\t{record.data.decode()}\t{record.ttl}\t{'auth' if authoritive else 'nonauth'}")
+            elif record.type_ == TYPE_MX:
+                print(f"MX\t{record.data[1].decode()}\t{record.data[0]}\t{record.ttl}\t{'auth' if authoritive else 'nonauth'}")
+            else:
+                pass
+    if packet.additionals:
+        print(f"***Additional Section ({packet.header.arcount} records)***")
+        for record in packet.additionals:
+            if record.type_ == TYPE_A:
+                print(f"IP\t{record.data}\t{record.ttl}\t{'auth' if authoritive else 'nonauth'}")
+            elif record.type_ == TYPE_NS:
+                print(f"NS\t{record.data.decode()}\t{record.ttl}\t{'auth' if authoritive else 'nonauth'}")
+            elif record.type_ == TYPE_CNAME:
+                print(f"CNAME\t{record.data.decode()}\t{record.ttl}\t{'auth' if authoritive else 'nonauth'}")
+            elif record.type_ == TYPE_MX:
+                print(f"MX\t{record.data[1].decode()}\t{record.data[0]}\t{record.ttl}\t{'auth' if authoritive else 'nonauth'}")
+            else:
+                pass
+    if not (packet.answers or packet.additionals):
+        print("NOTFOUND")
     sock.close()
