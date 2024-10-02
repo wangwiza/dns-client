@@ -204,7 +204,29 @@ if __name__ == "__main__":
 
     response, _ = sock.recvfrom(1024)
     packet = parse_dns_packet(response)
+
+    # Error handling
+    rcode = packet.header.flags & 0x000F
     authoritive = packet.header.flags & 0x0400
+    if rcode == 1:
+        print("ERROR\tFormat error: the name server was unable to interpret the query.")
+        sys.exit(1)
+    elif rcode == 2:
+        print("ERROR\tServer failure: the name server was unable to process this query due to a problem with the name server.")
+        sys.exit(1)
+    elif rcode == 3:
+        print("NOTFOUND\tName Error: the domain name referenced in the query does not exist.")
+        sys.exit(1)
+    elif rcode == 4:
+        print("ERROR\tNot Implemented: the name server does not support the requested kind of query.")
+        sys.exit(1)
+    elif rcode == 5:
+        print("ERROR\tRefused: the name server refuses to perform the specified operation for policy reasons.")
+        sys.exit(1)
+    elif rcode != 0:
+        print(f"ERROR\tUnknown error")
+        sys.exit(1)
+
     if packet.answers:
         print(f"***Answer Section ({packet.header.ancount} records)***")
         for record in packet.answers:
@@ -231,6 +253,4 @@ if __name__ == "__main__":
                 print(f"MX\t{record.data[1].decode()}\t{record.data[0]}\t{record.ttl}\t{'auth' if authoritive else 'nonauth'}")
             else:
                 pass
-    if not (packet.answers or packet.additionals):
-        print("NOTFOUND")
     sock.close()
