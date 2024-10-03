@@ -8,6 +8,7 @@ import random
 import sys
 import socket
 import struct
+import time
 import dataclasses
 from dataclasses import dataclass
 
@@ -80,23 +81,23 @@ def create_command_line_parser() -> argparse.ArgumentParser:
 
 def verify_command_line_args(args: argparse.Namespace) -> None:
     if args.timeout <= 0:
-        print('Error: Timeout must be greater than 0')
+        print('ERROR\tIncorrect input syntax: Timeout must be greater than 0')
         sys.exit(1)
     if args.max_retries <= 0:
-        print('Error: Max retries must be greater than 0')
+        print('ERROR\tIncorrect input syntax: Max retries must be greater than 0')
         sys.exit(1)
     if args.port < 0 or args.port > 65535:
-        print('Error: Port number must be between 0 and 65535')
+        print('ERROR\tIncorrect input syntax: Port number must be between 0 and 65535')
         sys.exit(1)
     if args.mx and args.ns:
-        print('Error: Cannot have both MX and NS flags')
+        print('ERROR\tIncorrect input syntax: Cannot have both MX and NS flags')
         sys.exit(1)
     if args.server[0] != '@':
-        print('Error: Server name must start with @')
+        print('ERROR\tIncorrect input syntax: Server name must start with @')
         sys.exit(1)
     server = args.server[1:]
     if len(server.split('.')) != 4 or not all(0 <= int(x) < 256 for x in server.split('.')):
-        print(f'Error: Server name must be in the format of an IP address (x.x.x.x) and each x must be between 0 and 255')
+        print(f'ERROR\tIncorrect input syntax: Server name must be in the format of an IP address (x.x.x.x) and each x must be between 0 and 255')
         sys.exit(1)
 
 def build_dns_query(name: str, qtype: int) -> bytes:
@@ -173,16 +174,6 @@ def parse_dns_packet(data):
 def ip_to_string(ip):
     return ".".join([str(x) for x in ip])
 
-def lookup_domain_name(name: str, server: str, port: int, mx: bool, ns: bool):
-    # Sends a query to the server for the given domain name using a UDP socket;
-    query = build_dns_query(name, 15 if mx else 2 if ns else 1)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.sendto(query, (server, port))
-
-    # Waits for the response to be returned from the server;
-    response, _ = sock.recvfrom(1024)
-    packet = parse_dns_packet(response)
-    return ip_to_string(packet.answers[0].data)
 
 if __name__ == "__main__":
     # Is invoked from the command line (STDIN);
@@ -194,15 +185,33 @@ if __name__ == "__main__":
     print("Server:", args.server[1:])
     print("Request type:", "MX" if args.mx else "NS" if args.ns else "A")
 
-    # Sends a query to the server for the given domain name using a UDP socket;
+    # Create a DNS query packet and instantiate a UDP socket;
     query = build_dns_query(args.name, 15 if args.mx else 2 if args.ns else 1)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.sendto(query, (args.server[1:], args.port))
 
+    # Send the query to the server and wait for a response;
+    sock.settimeout(args.timeout)
+    for attempt in range(args.max_retries + 1):
+        try:
+            start_time = time.time()
+            sock.sendto(query, (args.server[1:], args.port))
+            response, _ = sock.recvfrom(1024)
 
-    # Waits for the response to be returned from the server;
+            # Record the time taken to receive the response;
+            end_time = time.time()
+            elapsed_time = end_time - start_time
 
-    response, _ = sock.recvfrom(1024)
+            # Break if a response is received;
+            print(f"Response received after {elapsed_time} seconds ({attempt} retries)")
+            break
+        except socket.timeout:
+            print(f"ERROR\tTimeout error: the server did not respond within the specified timeout ({args.timeout} seconds)")
+            if attempt >= args.max_retries:
+                print(f"ERROR\tMax number of retries ({args.max_retries}) exceeded")
+                sys.exit(1)
+            print(f"Retrying... ({attempt+1}/{args.max_retries})")
+
+    # Parse the response and print the results;
     packet = parse_dns_packet(response)
 
     # Error handling
