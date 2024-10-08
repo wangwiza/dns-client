@@ -70,7 +70,7 @@ def encode_dns_name(name: str) -> bytes:
 def create_command_line_parser() -> argparse.ArgumentParser:
     # python dnsClient.py [-t timeout] [-r max-retries] [-p port] [-mx|-ns] @server name
     parser = argparse.ArgumentParser(description='DNS Client')
-    parser.add_argument('-t', '--timeout', type=int, default=5, help='Timeout in seconds')
+    parser.add_argument('-t', '--timeout', type=float, default=5, help='Timeout in seconds')
     parser.add_argument('-r', '--max-retries', type=int, default=3, help='Maximum number of retries')
     parser.add_argument('-p', '--port', type=int, default=53, help='Port number')
     parser.add_argument('-mx', '--mx', action='store_true', help='MX flag')
