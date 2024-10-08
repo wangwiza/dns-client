@@ -176,6 +176,8 @@ def ip_to_string(ip):
 
 
 if __name__ == "__main__":
+    start_time = time.time()
+    
     # Is invoked from the command line (STDIN);
     parser = create_command_line_parser()
     args = parser.parse_args()
@@ -193,7 +195,6 @@ if __name__ == "__main__":
     sock.settimeout(args.timeout)
     for attempt in range(args.max_retries + 1):
         try:
-            start_time = time.time()
             sock.sendto(query, (args.server[1:], args.port))
             response, _ = sock.recvfrom(1024)
 
