@@ -1,6 +1,7 @@
 ''' DNS Client (command line application)
 Authors: William Wang 261113954
          Kevin-Ruikai Li 261120382 
+         Li Yang Lei 261105528
 '''
 import argparse
 from io import BytesIO
